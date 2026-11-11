@@ -202,7 +202,8 @@ a.btn{text-decoration:none}
         <div><label class="lb">Local</label><input name="local" placeholder="Cidade - UF"></div>
         <div><label class="lb">Contrato / OS</label><input name="contrato"></div>
         <div><label class="lb">Encarregado</label><input name="encarregado"></div>
-        <div class="full"><label class="lb">E-mail do cliente / fiscalização (para envio do RDO)</label><input name="emailCliente" inputmode="email" placeholder="fiscal@cliente.com.br"></div>
+        <div class="full"><label class="lb">E-mail do fiscal (destinatário do RDO)</label><input name="emailCliente" inputmode="email" placeholder="fiscal@cliente.com.br"></div>
+        <div class="full"><label class="lb">E-mails em cópia (Cc)</label><input name="emailCopia" inputmode="email" placeholder="separe vários e-mails com ;"></div>
         <div class="full"><label class="lb">Responsável técnico</label><input name="rt" list="rtList" placeholder="Escolha ou digite"></div>
         <div><label class="lb">Data de início</label><input type="date" name="inicio"></div>
         <div><label class="lb">Prazo (dias)</label><input type="number" min="0" inputmode="numeric" name="prazo"></div>
@@ -235,10 +236,11 @@ a.btn{text-decoration:none}
 
 <div class="modal" id="mailModal"><div class="box wide">
   <h3>Enviar RDO por e-mail</h3>
-  <label class="lb">Para</label><input id="mPara" inputmode="email" placeholder="email@cliente.com.br">
+  <label class="lb">Para (fiscal)</label><input id="mPara" inputmode="email" placeholder="fiscal@cliente.com.br">
+  <label class="lb">Cópia (Cc)</label><input id="mCc" inputmode="email" placeholder="separe vários e-mails com ;">
   <label class="lb">Assunto</label><input id="mAss">
   <label class="lb">Mensagem</label><textarea id="mMsg" rows="9"></textarea>
-  <p class="mut" style="margin:10px 0 12px">O PDF do RDO vai anexado. O e-mail sai da conta Gmail da Vieira.</p>
+  <p class="mut" style="margin:10px 0 12px">O PDF do RDO vai anexado. Remetente: RDO Vieira Estruturas. Para vários e-mails, separe com ponto e vírgula.</p>
   <div class="rowbtns"><button class="btn ghost sm" id="mFechar">Fechar</button><button class="btn sm" id="mEnviar">Enviar e-mail</button></div>
 </div></div>
 <div class="modal" id="login"><form class="box" id="loginForm">
@@ -499,11 +501,11 @@ function renderObras(){
       <div class="b"><button class="btn ghost sm" data-oed="${esc(o.id)}">Editar</button><button class="btn danger sm" data-odel="${esc(o.id)}">Excluir</button></div></div>`;}).join('')
     :'<div class="empty">Nenhuma obra cadastrada. Cadastre a primeira acima.</div>';
 }
-function fillObraForm(o){const fm=$('#obraForm');['nome','cliente','local','contrato','encarregado','emailCliente','rt','inicio','prazo'].forEach(k=>fm.elements[k].value=o&&o[k]!=null?o[k]:'');fm.elements.status.value=o&&o.status||'ativa';
+function fillObraForm(o){const fm=$('#obraForm');['nome','cliente','local','contrato','encarregado','emailCliente','emailCopia','rt','inicio','prazo'].forEach(k=>fm.elements[k].value=o&&o[k]!=null?o[k]:'');fm.elements.status.value=o&&o.status||'ativa';
   $('#obraFormTitle').textContent=o?'Editar obra':'Cadastrar obra';$('#obraCancel').hidden=!o;}
 $('#obraForm').addEventListener('submit',async e=>{
   e.preventDefault();const fm=e.target,d={};
-  ['nome','cliente','local','contrato','encarregado','emailCliente','rt','inicio','prazo','status'].forEach(k=>d[k]=fm.elements[k].value.trim());
+  ['nome','cliente','local','contrato','encarregado','emailCliente','emailCopia','rt','inicio','prazo','status'].forEach(k=>d[k]=fm.elements[k].value.trim());
   if(!d.nome){toast('Informe o nome da obra.');return;}
   d.prazo=d.prazo?parseInt(d.prazo,10):'';
   const id=editObra||uid('o');const prev=obraById(id);d.criadoEm=prev&&prev.criadoEm||Date.now();
@@ -643,7 +645,8 @@ function abrirEmail(id){
   const r=S.rdos.find(x=>x.id===id);if(!r)return;const o=obraById(r.obraId)||{};mailId=id;
   const num=String(r.numero).padStart(3,'0'),ef=(r.efetivo||[]).reduce((s,x)=>s+(+x.qtd||0),0);
   $('#mPara').value=o.emailCliente||'';
-  $('#mAss').value=`RDO nº ${num} - ${o.nome||r.obraNome||''} - ${fmtBR(r.data)}`;
+  $('#mCc').value=o.emailCopia||'';
+  $('#mAss').value='RDO_'+String(o.nome||r.obraNome||'Obra').trim().replace(/\s+/g,'_')+'_Dia_'+fmtBR(r.data).replace(/\//g,'_');
   $('#mMsg').value=`Prezados,\n\nSegue em anexo o Relatório Diário de Obra nº ${num}, referente ao dia ${fmtBR(r.data)} (${weekday(r.data).toLowerCase()}), da obra ${o.nome||r.obraNome||''}.\n\nEfetivo no dia: ${ef} ${ef===1?'pessoa':'pessoas'}.\n\nFicamos à disposição para qualquer esclarecimento.\n\nAtenciosamente,\n${r.preenchidoPor?r.preenchidoPor+'\n':''}Vieira Estruturas Metálicas\n(34) 3030-0035`;
   $('#mailModal').classList.add('on');
 }
@@ -652,15 +655,17 @@ $('#mEnviar').onclick=async()=>{
   if(!mailId||sending||S.busy)return;
   const para=$('#mPara').value.split(/[,;\s]+/).map(s=>s.trim()).filter(Boolean);
   if(!para.length||para.some(e=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))){toast('Informe um e-mail de destino válido.');$('#mPara').focus();return;}
+  const cc=$('#mCc').value.split(/[,;\s]+/).map(s=>s.trim()).filter(Boolean);
+  if(cc.some(e=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))){toast('Confira os e-mails em cópia.');$('#mCc').focus();return;}
   const ass=$('#mAss').value.trim(),msg=$('#mMsg').value,id=mailId;
   if(!ass){toast('Informe o assunto.');$('#mAss').focus();return;}
-  if(!(await ask(`Enviar este RDO agora para ${para.join(', ')}, com o PDF anexado?`,'Enviar')))return;
+  if(!(await ask(`Enviar este RDO agora para ${para.join(', ')}${cc.length?' (cópia: '+cc.join(', ')+')':''}, com o PDF anexado?`,'Enviar')))return;
   sending=true;const b=$('#mEnviar');b.disabled=true;b.textContent='Enviando…';
   try{
     const out=await pdfDe(id);if(!out)return;
     toast('Enviando e-mail…',60000);
-    upRdo(await gs('sendMail',id,para.join(','),ass,msg,out.fname,await b64(out.blob)));
-    toast('E-mail enviado para '+para.join(', ')+'.',5000);$('#mailModal').classList.remove('on');
+    upRdo(await gs('sendMail',id,para.join(','),ass,msg,out.fname,await b64(out.blob),cc.join(',')));
+    toast('E-mail enviado para '+para.join(', ')+(cc.length?' (cópia: '+cc.length+')':'')+'.',5000);$('#mailModal').classList.remove('on');
   }catch(e){toast(errMsg(e),7000);}
   finally{sending=false;b.disabled=false;b.textContent='Enviar e-mail';}
 };
