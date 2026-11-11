@@ -223,16 +223,13 @@ a.btn{text-decoration:none}
 </main>
 
 <div class="actions" id="actions"><div class="in">
-  <button class="btn ghost" id="bNovo" title="Limpar e começar um novo RDO">Novo</button>
-  <button class="btn" id="bSalvar">Salvar RDO</button>
-  <i class="brk"></i>
-  <button class="btn ghost" id="bPdf">Baixar PDF</button>
-  <button class="btn ghost" id="bNuvem">Salvar na nuvem</button>
-  <button class="btn ghost" id="bMail">Enviar e-mail</button>
+  <button class="btn ghost" id="bNovo" title="Começar um novo RDO">Novo</button>
+  <button class="btn" id="bPdf">Salvar e gerar PDF</button>
+  <button class="btn" id="bMail">Salvar e enviar e-mail</button>
 </div></div>
 
 <div class="toast" id="toast"></div>
-<div class="modal" id="modal"><div class="box"><p id="modalMsg"></p><div class="rowbtns"><button class="btn ghost sm" id="modalNo">Cancelar</button><button class="btn sm" id="modalYes">Confirmar</button></div></div></div>
+<div class="modal" id="modal"><div class="box"><p id="modalMsg"></p><div class="rowbtns"><button class="btn ghost sm" id="modalNo">Cancelar</button><button class="btn ghost sm" id="modalAlt" hidden></button><button class="btn sm" id="modalYes">Confirmar</button></div></div></div>
 
 <div class="modal" id="mailModal"><div class="box wide">
   <h3>Enviar RDO por e-mail</h3>
@@ -282,6 +279,7 @@ function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{localStorage.setItem(k,v);return true;}catch(e){return false;}}
 function lsDel(k){try{localStorage.removeItem(k);}catch(e){}}
 let toastT;function toast(m,ms){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),ms||2800);}
+function ask3(msg,yes,alt){return new Promise(r=>{$('#modalMsg').textContent=msg;$('#modalYes').textContent=yes;const a=$('#modalAlt');a.textContent=alt;a.hidden=false;const m=$('#modal');m.classList.add('on');const done=v=>{m.classList.remove('on');a.hidden=true;$('#modalYes').onclick=$('#modalNo').onclick=a.onclick=null;r(v);};$('#modalYes').onclick=()=>done('yes');a.onclick=()=>done('alt');$('#modalNo').onclick=()=>done(false);});}
 function ask(msg,yes){return new Promise(r=>{$('#modalMsg').textContent=msg;$('#modalYes').textContent=yes||'Confirmar';const m=$('#modal');m.classList.add('on');const done=v=>{m.classList.remove('on');$('#modalYes').onclick=$('#modalNo').onclick=null;r(v);};$('#modalYes').onclick=()=>done(true);$('#modalNo').onclick=()=>done(false);});}
 function banner(msg){const b=$('#banner');if(!msg){b.className='banner';b.textContent='';return;}b.className='banner warn';b.textContent=msg;}
 function errMsg(e){const m=String(e&&e.message||'');if(m.indexOf('SENHA')>=0){$('#login').classList.add('on');return 'Senha da equipe incorreta. Entre de novo.';}return m&&m.length<140?m.replace(/^Error:\s*/,''):'Erro de comunicação. Verifique a conexão e tente de novo.';}
@@ -413,7 +411,7 @@ $('#fotoIn').addEventListener('change',async e=>{
 });
 
 /* ---------- salvar / carregar RDO ---------- */
-function setBusy(v){S.busy=v;['#bSalvar','#bPdf','#bNovo','#bNuvem','#bMail'].forEach(s=>$(s).disabled=v);}
+function setBusy(v){S.busy=v;['#bPdf','#bNovo','#bMail'].forEach(s=>$(s).disabled=v);}
 async function salvar(){
   const f=S.form;
   if(!f.obraId){toast('Selecione a obra.');$('#fObra').focus();return false;}
@@ -429,7 +427,7 @@ async function salvar(){
   setBusy(true);toast('Salvando…',20000);
   try{
     await Store.saveRdo(id,rdo,S.fotos,S.oldFotos);
-    S.editingId=id;S.oldFotos=S.fotos.length;S.criadoEm=rdo.criadoEm;lsDel(DRAFT);
+    S.editingId=id;S.oldFotos=S.fotos.length;S.criadoEm=rdo.criadoEm;S.dirty=false;lsDel(DRAFT);
     renderForm();toast('RDO salvo.');return true;
   }catch(e){toast(errMsg(e),5000);return false;}
   finally{setBusy(false);}
@@ -443,27 +441,36 @@ async function carregar(id,modo,quiet){
       Object.assign(base,{obraId:r.obraId,efetivo:clone(r.efetivo||base.efetivo),equipamentos:clone(r.equipamentos||base.equipamentos),horario:clone(r.horario||base.horario)});
       base.numero=S.rdos.filter(x=>x.obraId===r.obraId).reduce((m,x)=>Math.max(m,+x.numero||0),0)+1;
       S.form=base;S.fotos=[];S.editingId=null;S.pdf=null;S.oldFotos=0;S.criadoEm=null;
-      toast('Novo RDO criado a partir do anterior. Atualize data, clima, atividades e fotos.',4000);
+      S.dirty=true;toast('Novo RDO criado a partir do anterior. Atualize data, clima, atividades e fotos.',4000);
     }else{
       ['obraId','numero','data','preenchidoPor','atividades','ocorrencias'].forEach(k=>{if(r[k]!=null)base[k]=r[k];});
       ['horario','clima','efetivo','equipamentos'].forEach(k=>{if(r[k])base[k]=clone(r[k]);});
       PER.forEach(([k])=>{if(!base.clima[k])base.clima[k]={tempo:'—',cond:'Sem expediente'};});
-      S.form=base;S.fotos=await Store.getFotos(id,r.fotosCount||0);S.editingId=id;S.oldFotos=r.fotosCount||0;S.criadoEm=r.criadoEm||null;S.pdf=Object.fromEntries(['pdfId','pdfNome','pdfEm','emailEm','emailPara'].filter(k=>r[k]!=null).map(k=>[k,r[k]]));
+      S.form=base;S.fotos=await Store.getFotos(id,r.fotosCount||0);S.editingId=id;S.oldFotos=r.fotosCount||0;S.criadoEm=r.criadoEm||null;S.dirty=false;S.pdf=Object.fromEntries(['pdfId','pdfNome','pdfEm','emailEm','emailPara'].filter(k=>r[k]!=null).map(k=>[k,r[k]]));
       toast('RDO aberto.');
     }
     renderForm();if(!quiet)showTab('novo');return true;
   }catch(e){toast('Não foi possível abrir o RDO.');return false;}
   finally{setBusy(false);}
 }
+['input','change'].forEach(t=>document.addEventListener(t,e=>{if(e.target.closest&&e.target.closest('#tab-novo'))S.dirty=true;},true));
+document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('#tab-novo button');if(b)S.dirty=true;},true);
+async function salvarNuvem(){
+  if(!(await salvar()))return null;
+  const id=S.editingId;const out=await buildPdf();if(!out){toast('RDO salvo, mas não foi possível gerar o PDF.');return null;}
+  setBusy(true);toast('Salvando PDF no Google Drive…',60000);
+  try{upRdo(await gs('savePdf',id,out.fname,await b64(out.blob)));toast('RDO salvo na nuvem.');return out;}
+  catch(e){toast('RDO salvo, mas o PDF não foi para o Drive: '+errMsg(e),6000);return null;}
+  finally{setBusy(false);}
+}
 async function novo(){
-  if(S.editingId||S.form.atividades||S.fotos.length){if(!(await ask('Limpar o formulário e começar um novo RDO? O que não foi salvo será perdido.','Limpar')))return;}
-  S.form=blankForm();S.fotos=[];S.editingId=null;S.pdf=null;S.oldFotos=0;S.criadoEm=null;lsDel(DRAFT);renderForm();window.scrollTo(0,0);
+  if(S.busy)return;
+  if(S.dirty){const r=await ask3('Deseja salvar o RDO atual antes de criar um novo?','Salvar','Não salvar');if(!r)return;if(r==='yes'&&!(await salvarNuvem()))return;}
+  S.form=blankForm();S.fotos=[];S.editingId=null;S.pdf=null;S.oldFotos=0;S.criadoEm=null;S.dirty=false;lsDel(DRAFT);renderForm();window.scrollTo(0,0);toast('Novo RDO.');
 }
 $('#bNovo').onclick=novo;
-$('#bSalvar').onclick=()=>{if(!S.busy)salvar();};
-$('#bPdf').onclick=async()=>{if(S.busy)return;if(await salvar())cmdBaixar(S.editingId);};
-$('#bNuvem').onclick=async()=>{if(S.busy)return;if(await salvar())cmdNuvem(S.editingId);};
-$('#bMail').onclick=async()=>{if(S.busy)return;if(await salvar())abrirEmail(S.editingId);};
+$('#bPdf').onclick=async()=>{if(S.busy)return;const out=await salvarNuvem();if(out)await entregar(out);};
+$('#bMail').onclick=async()=>{if(S.busy)return;const out=await salvarNuvem();if(out)await enviarDireto(S.editingId,out);};
 
 /* ---------- histórico ---------- */
 function renderHist(){
@@ -625,7 +632,9 @@ async function pdfDe(id){
   const out=await buildPdf();if(!out)toast('Não foi possível gerar o PDF.');return out||null;
 }
 async function cmdBaixar(id){
-  const out=await pdfDe(id);if(!out)return;
+  const out=await pdfDe(id);if(out)await entregar(out);
+}
+async function entregar(out){
   try{const file=new File([out.blob],out.fname,{type:'application/pdf'});
     if(matchMedia('(pointer:coarse)').matches&&navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:out.fname});return;}catch(e){if(e&&e.name==='AbortError')return;}}
     const a=document.createElement('a');a.href=URL.createObjectURL(out.blob);a.download=out.fname;document.body.appendChild(a);a.click();a.remove();toast('PDF baixado.');}
@@ -641,6 +650,24 @@ async function cmdNuvem(id){
 
 /* ---------- e-mail ---------- */
 let mailId=null,sending=false;
+const listaEm=s=>String(s||'').split(/[,;\s]+/).map(x=>x.trim()).filter(Boolean);
+const emOk=e=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+function mailPadrao(id){
+  const r=S.rdos.find(x=>x.id===id);if(!r)return null;const o=obraById(r.obraId)||{};
+  const num=String(r.numero).padStart(3,'0'),ef=(r.efetivo||[]).reduce((s,x)=>s+(+x.qtd||0),0);
+  return {para:o.emailCliente||'',cc:o.emailCopia||'',
+    ass:'RDO_'+String(o.nome||r.obraNome||'Obra').replace(/\s*[-–—]+\s*/g,' ').trim().replace(/\s+/g,'_')+'_'+fmtBR(r.data).replace(/\//g,'_'),
+    msg:`Prezados,\n\nSegue em anexo o Relatório Diário de Obra nº ${num}, referente ao dia ${fmtBR(r.data)} (${weekday(r.data).toLowerCase()}), da obra ${o.nome||r.obraNome||''}.\n\nEfetivo no dia: ${ef} ${ef===1?'pessoa':'pessoas'}.\n\nFicamos à disposição para qualquer esclarecimento.\n\nAtenciosamente,\n${r.preenchidoPor?r.preenchidoPor+'\n':''}Vieira Estruturas Metálicas\n(34) 3030-0035`};
+}
+async function enviarDireto(id,out){
+  const d=mailPadrao(id);if(!d)return;
+  const para=listaEm(d.para),cc=listaEm(d.cc);
+  if(!para.length||para.some(e=>!emOk(e))||cc.some(e=>!emOk(e))){abrirEmail(id);toast('Confira o e-mail do fiscal e as cópias para enviar.',5000);return;}
+  setBusy(true);toast('Enviando e-mail…',60000);
+  try{upRdo(await gs('sendMail',id,para.join(','),d.ass,d.msg,out.fname,await b64(out.blob),cc.join(',')));toast('RDO salvo e enviado para '+para.join(', ')+(cc.length?' (cópia: '+cc.length+')':'')+'.',6000);}
+  catch(e){toast(errMsg(e),7000);}
+  finally{setBusy(false);}
+}
 function abrirEmail(id){
   const r=S.rdos.find(x=>x.id===id);if(!r)return;const o=obraById(r.obraId)||{};mailId=id;
   const num=String(r.numero).padStart(3,'0'),ef=(r.efetivo||[]).reduce((s,x)=>s+(+x.qtd||0),0);
@@ -671,7 +698,7 @@ $('#mEnviar').onclick=async()=>{
 };
 
 /* ---------- início ---------- */
-(function restoreDraft(){const s=lsGet(DRAFT);if(!s)return;try{const d=JSON.parse(s);if(d&&d.clima&&d.efetivo){S.form=Object.assign(blankForm(),d);}}catch(e){}})();
+(function restoreDraft(){const s=lsGet(DRAFT);if(!s)return;try{const d=JSON.parse(s);if(d&&d.clima&&d.efetivo){S.form=Object.assign(blankForm(),d);S.dirty=true;}}catch(e){}})();
 renderLogo();renderForm();showTab('novo');
 async function boot(){
   try{const d=await gs('boot');S.obras=d.obras||[];S.rdos=d.rdos||[];sortRdos();$('#login').classList.remove('on');banner('');renderAllData();}
