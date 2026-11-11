@@ -109,6 +109,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--az-c);border-col
 .modal p{margin:0 0 16px}
 .modal .rowbtns{justify-content:flex-end}
 #modal{z-index:70}
+#modalMsg{white-space:pre-line;line-height:1.5}
 #login{z-index:80;background:var(--bg)}
 .actions .in{flex-wrap:wrap}
 .actions .btn{padding:9px 6px;font-size:13.5px}
@@ -663,6 +664,7 @@ async function enviarDireto(id,out){
   const d=mailPadrao(id);if(!d)return;
   const para=listaEm(d.para),cc=listaEm(d.cc);
   if(!para.length||para.some(e=>!emOk(e))||cc.some(e=>!emOk(e))){abrirEmail(id);toast('Confira o e-mail do fiscal e as cópias para enviar.',5000);return;}
+  if(!(await ask('Confirmar envio do RDO com o PDF anexado?\n\nPara: '+para.join(', ')+(cc.length?'\nCópia: '+cc.join(', '):''),'Enviar'))){toast('RDO salvo na nuvem. O e-mail não foi enviado.',4500);return;}
   setBusy(true);toast('Enviando e-mail…',60000);
   try{upRdo(await gs('sendMail',id,para.join(','),d.ass,d.msg,out.fname,await b64(out.blob),cc.join(',')));toast('RDO salvo e enviado para '+para.join(', ')+(cc.length?' (cópia: '+cc.length+')':'')+'.',6000);}
   catch(e){toast(errMsg(e),7000);}
@@ -686,7 +688,7 @@ $('#mEnviar').onclick=async()=>{
   if(cc.some(e=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))){toast('Confira os e-mails em cópia.');$('#mCc').focus();return;}
   const ass=$('#mAss').value.trim(),msg=$('#mMsg').value,id=mailId;
   if(!ass){toast('Informe o assunto.');$('#mAss').focus();return;}
-  if(!(await ask(`Enviar este RDO agora para ${para.join(', ')}${cc.length?' (cópia: '+cc.join(', ')+')':''}, com o PDF anexado?`,'Enviar')))return;
+  if(!(await ask('Confirmar envio do RDO com o PDF anexado?\n\nPara: '+para.join(', ')+(cc.length?'\nCópia: '+cc.join(', '):''),'Enviar')))return;
   sending=true;const b=$('#mEnviar');b.disabled=true;b.textContent='Enviando…';
   try{
     const out=await pdfDe(id);if(!out)return;
