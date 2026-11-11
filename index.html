@@ -120,6 +120,11 @@ a.cloud{text-decoration:underline}
 .modal .lb{margin-top:10px}
 a.btn{text-decoration:none}
 .cloud{color:var(--ok);font-weight:600}
+.modal .box.view{max-width:920px;width:100%;height:92vh;display:flex;flex-direction:column;padding:12px}
+.vhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.vhead b{font-size:13px;color:var(--az-d);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#viewPages{flex:1;overflow:auto;background:#E4E7EF;border-radius:8px;padding:8px;-webkit-overflow-scrolling:touch}
+#viewPages canvas{display:block;width:100%;max-width:900px;height:auto;margin:0 auto 10px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18)}
 [hidden]{display:none!important}
 @media (max-width:480px){.clrow{grid-template-columns:1fr 1fr}.clrow span{grid-column:1/-1}.item{flex-direction:column}.item .b{justify-content:flex-start}}
 </style>
@@ -241,6 +246,7 @@ a.btn{text-decoration:none}
   <p class="mut" style="margin:10px 0 12px">O PDF do RDO vai anexado. Remetente: RDO Vieira Estruturas. Para vários e-mails, separe com ponto e vírgula.</p>
   <div class="rowbtns"><button class="btn ghost sm" id="mFechar">Fechar</button><button class="btn sm" id="mEnviar">Enviar e-mail</button></div>
 </div></div>
+<div class="modal" id="viewModal"><div class="box view"><div class="vhead"><b id="viewTitle"></b><button class="btn ghost sm" id="viewClose">Fechar</button></div><div id="viewPages"></div></div></div>
 <div class="modal" id="login"><form class="box" id="loginForm">
   <h3>RDO · Vieira Estruturas Metálicas</h3>
   <label class="lb">Senha da equipe</label><input id="loginPin" type="password" inputmode="numeric" autocomplete="off">
@@ -483,7 +489,7 @@ function renderHist(){
     return `<div class="item"><div><div class="t">RDO nº ${String(r.numero).padStart(3,'0')} · ${fmtBR(r.data)} <span style="color:var(--mu);font-weight:500">(${weekday(r.data).slice(0,3).toLowerCase()})</span></div>
       <div class="s">${esc(o?o.nome:r.obraNome||'Obra removida')}</div>
       <div class="s">${ef} no efetivo${cl&&cl!=='—'?' · '+esc(cl):''} · ${r.fotosCount||0} foto(s)${r.pdfUrl?' · <a class="cloud" href="'+esc(r.pdfUrl)+'" target="_blank" rel="noopener">PDF na nuvem</a>':''}${r.emailEm?' · <span class="cloud">Enviado por e-mail em '+new Date(r.emailEm).toLocaleDateString('pt-BR')+'</span>':''}${r.preenchidoPor?' · por '+esc(r.preenchidoPor):''}</div></div>
-      <div class="b"><button class="btn ghost sm" data-hpdf="${esc(r.id)}">Baixar PDF</button><button class="btn ghost sm" data-hnuvem="${esc(r.id)}">Salvar na nuvem</button><button class="btn ghost sm" data-hmail="${esc(r.id)}">Enviar e-mail</button><button class="btn ghost sm" data-hed="${esc(r.id)}">Abrir</button><button class="btn ghost sm" data-hdup="${esc(r.id)}" title="Novo RDO com o mesmo efetivo e equipamentos">Duplicar</button><button class="btn danger sm" data-hdel="${esc(r.id)}">Excluir</button></div></div>`;
+      <div class="b"><button class="btn ghost sm" data-hver="${esc(r.id)}">Visualizar</button><button class="btn ghost sm" data-hpdf="${esc(r.id)}">Baixar PDF</button><button class="btn ghost sm" data-hmail="${esc(r.id)}">Enviar e-mail</button><button class="btn ghost sm" data-hed="${esc(r.id)}">Abrir</button><button class="btn ghost sm" data-hdup="${esc(r.id)}" title="Novo RDO com o mesmo efetivo e equipamentos">Duplicar</button><button class="btn danger sm" data-hdel="${esc(r.id)}">Excluir</button></div></div>`;
   }).join(''):`<div class="empty">${S.rdos.length?'Nenhum RDO para esta obra.':'Nenhum RDO salvo ainda.'}</div>`;
 }
 $('#histObra').addEventListener('change',renderHist);
@@ -491,8 +497,8 @@ $('#histList').addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b||S.busy)return;
   if(b.dataset.hed)carregar(b.dataset.hed);
   else if(b.dataset.hdup)carregar(b.dataset.hdup,'duplicar');
+  else if(b.dataset.hver){cmdVer(b.dataset.hver);}
   else if(b.dataset.hpdf){cmdBaixar(b.dataset.hpdf);}
-  else if(b.dataset.hnuvem){cmdNuvem(b.dataset.hnuvem);}
   else if(b.dataset.hmail){abrirEmail(b.dataset.hmail);}
   else if(b.dataset.hdel){const r=S.rdos.find(x=>x.id===b.dataset.hdel);if(!r)return;
     if(!(await ask(`Excluir o RDO nº ${String(r.numero).padStart(3,'0')} de ${fmtBR(r.data)}? Isso não pode ser desfeito.`,'Excluir')))return;
@@ -629,12 +635,38 @@ async function buildPdf(){
 }
 function b64(blob){return new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(String(fr.result).split(',')[1]);fr.onerror=rej;fr.readAsDataURL(blob);});}
 async function pdfDe(id){
+  if(S.dirty&&S.editingId!==id&&!(await ask('O RDO aberto no formulário tem alterações não salvas, que serão descartadas. Continuar?','Continuar')))return null;
   if(S.editingId!==id){if(!(await carregar(id,null,true)))return null;}
   const out=await buildPdf();if(!out)toast('Não foi possível gerar o PDF.');return out||null;
 }
 async function cmdBaixar(id){
   const out=await pdfDe(id);if(out)await entregar(out);
 }
+let pdfjsP=null;
+function loadPdfjs(){
+  if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);
+  if(!pdfjsP)pdfjsP=new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=()=>{try{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';res(window.pdfjsLib);}catch(e){rej(e);}};
+    s.onerror=()=>{pdfjsP=null;rej(new Error('pdfjs'));};document.head.appendChild(s);});
+  return pdfjsP;
+}
+let verN=0;
+async function cmdVer(id){
+  const out=await pdfDe(id);if(!out)return;
+  const n=++verN,box=$('#viewPages');box.innerHTML='<div class="empty">Carregando visualização…</div>';$('#viewTitle').textContent=out.fname;$('#viewModal').classList.add('on');
+  try{
+    const lib=await loadPdfjs();const doc=await lib.getDocument({data:new Uint8Array(await out.blob.arrayBuffer())}).promise;
+    if(n!==verN)return;box.innerHTML='';
+    const w=Math.min(Math.max(box.clientWidth-16,300),900),dpr=Math.min(window.devicePixelRatio||1,2);
+    for(let i=1;i<=doc.numPages;i++){
+      if(n!==verN)return;
+      const pg=await doc.getPage(i),v0=pg.getViewport({scale:1}),vp=pg.getViewport({scale:(w/v0.width)*dpr});
+      const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);box.appendChild(c);
+      await pg.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+    }
+  }catch(e){if(n===verN)box.innerHTML='<div class="empty">Não foi possível mostrar a visualização neste aparelho. Use "Baixar PDF".</div>';}
+}
+$('#viewClose').onclick=()=>{verN++;$('#viewModal').classList.remove('on');$('#viewPages').innerHTML='';};
 async function entregar(out){
   try{const file=new File([out.blob],out.fname,{type:'application/pdf'});
     if(matchMedia('(pointer:coarse)').matches&&navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:out.fname});return;}catch(e){if(e&&e.name==='AbortError')return;}}
