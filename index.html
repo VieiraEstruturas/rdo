@@ -646,7 +646,7 @@ function abrirEmail(id){
   const num=String(r.numero).padStart(3,'0'),ef=(r.efetivo||[]).reduce((s,x)=>s+(+x.qtd||0),0);
   $('#mPara').value=o.emailCliente||'';
   $('#mCc').value=o.emailCopia||'';
-  $('#mAss').value='RDO_'+String(o.nome||r.obraNome||'Obra').trim().replace(/\s+/g,'_')+'_Dia_'+fmtBR(r.data).replace(/\//g,'_');
+  $('#mAss').value='RDO_'+String(o.nome||r.obraNome||'Obra').replace(/\s*[-–—]+\s*/g,' ').trim().replace(/\s+/g,'_')+'_'+fmtBR(r.data).replace(/\//g,'_');
   $('#mMsg').value=`Prezados,\n\nSegue em anexo o Relatório Diário de Obra nº ${num}, referente ao dia ${fmtBR(r.data)} (${weekday(r.data).toLowerCase()}), da obra ${o.nome||r.obraNome||''}.\n\nEfetivo no dia: ${ef} ${ef===1?'pessoa':'pessoas'}.\n\nFicamos à disposição para qualquer esclarecimento.\n\nAtenciosamente,\n${r.preenchidoPor?r.preenchidoPor+'\n':''}Vieira Estruturas Metálicas\n(34) 3030-0035`;
   $('#mailModal').classList.add('on');
 }
