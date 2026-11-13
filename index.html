@@ -87,6 +87,13 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--az-c);border-col
 .aprow.part select[data-ap="min"]{border-color:var(--warn);color:var(--warn);font-weight:600}
 .aprow .apx{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .aprow .apx[hidden]{display:none}
+.wknav{display:grid;grid-template-columns:44px 1fr 44px;gap:8px;margin-top:8px}
+.hday{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 2px;border-bottom:1px solid #eef1f5}
+.hday .t{font-weight:600}.hday .s{font-size:12.5px;color:var(--mu)}
+.hday .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:var(--az-d)}
+.hday.vazio .v{color:var(--mu);font-weight:500}
+.hmot{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:6px 2px;border-bottom:1px solid #eef1f5;font-size:14px}
+.hmot .bar{grid-column:1/-1;height:6px;border-radius:3px;background:var(--az-c);overflow:hidden}.hmot .bar i{display:block;height:100%;background:var(--warn)}
 .aptot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .aptot div{background:var(--az-c);border-radius:8px;padding:8px;text-align:center}
 .aptot b{display:block;font-size:17px;color:var(--az-d)}
@@ -151,6 +158,7 @@ a.btn{text-decoration:none}
     <button data-tab="novo" class="on">Novo RDO</button>
     <button data-tab="hist">Histórico</button>
     <button data-tab="obras">Obras</button>
+    <button data-tab="horas">Horas</button>
   </nav>
 </div></header>
 
@@ -217,6 +225,20 @@ a.btn{text-decoration:none}
       <div class="cardhead"><h2>RDOs emitidos</h2><span class="pill" id="histCount">0</span></div>
       <select id="histObra"></select>
       <div id="histList" style="margin-top:6px"></div>
+    </div>
+  </section>
+
+  <!-- ================= HORAS ================= -->
+  <section id="tab-horas" class="tab" hidden>
+    <div class="card">
+      <div class="cardhead"><h2>Horas trabalhadas na semana</h2><span class="pill" id="hCount">0 RDOs</span></div>
+      <select id="hObra"></select>
+      <div class="wknav"><button type="button" class="btn ghost sm" id="hPrev" aria-label="Semana anterior">‹</button><input type="date" id="hData" aria-label="Qualquer dia da semana"><button type="button" class="btn ghost sm" id="hNext" aria-label="Próxima semana">›</button></div>
+      <p class="aphint" id="hPeriodo"></p>
+      <div class="aptot"><div><b id="hTrab">0h00</b><span>Trabalhado</span></div><div><b id="hPar">0h00</b><span>Parado</span></div><div><b id="hApr">—</b><span>Aproveitamento</span></div></div>
+      <div id="hDias" style="margin-top:10px"></div>
+      <div id="hMotBox" hidden><h2 style="margin-top:14px">Paradas por motivo</h2><div id="hMot"></div></div>
+      <button type="button" class="btn" id="hPdf" style="width:100%;margin-top:14px">Baixar relatório da semana (PDF)</button>
     </div>
   </section>
 
@@ -405,7 +427,7 @@ function renderForm(){
   renderObraSelect();renderClima();renderList('efetivo');renderList('equipamentos');renderAp();renderFotos();
   const ed=!!S.editingId;$('#editTag').hidden=!ed;$('#formTitle').textContent=ed?`RDO nº ${String(S.form.numero).padStart(3,'0')}`:'Novo RDO';
 }
-function renderAllData(){renderObraSelect();renderHist();renderObras();renderLogo();}
+function renderAllData(){renderObraSelect();renderHist();renderHoras();renderObras();renderLogo();}
 
 /* ---------- eventos do formulário ---------- */
 let draftT;function saveDraft(){if(S.editingId)return;clearTimeout(draftT);draftT=setTimeout(()=>{if(!S.editingId)lsSet(DRAFT,JSON.stringify(S.form));},400);}
@@ -695,6 +717,103 @@ async function buildPdf(){
   const slug=String(o.nome||'obra').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w]+/g,'_').replace(/^_|_$/g,'').slice(0,40);
   const fname=`RDO_${num}_${slug}_${f.data}.pdf`;
   return {blob:d.output('blob'),fname};
+}
+/* ---------- relatório semanal de horas ---------- */
+const addDays=(iso,n)=>{const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);};
+const wkStart=iso=>{const d=new Date(iso+'T12:00:00'),w=(d.getDay()+6)%7;return addDays(iso,-w);};
+const temAp=r=>(r.apontamento||[]).some((x,i)=>i>=AP_INI&&i<AP_FIM&&x&&x.min!==''&&x.min!=null);
+function semana(){
+  const ini=wkStart($('#hData').value||todayISO()),fim=addDays(ini,6),fo=$('#hObra').value;
+  const rdos=S.rdos.filter(r=>r.data>=ini&&r.data<=fim&&(!fo||r.obraId===fo)).sort((a,b)=>(a.data||'').localeCompare(b.data||'')||((obraById(a.obraId)||{}).nome||'').localeCompare((obraById(b.obraId)||{}).nome||'')||a.numero-b.numero);
+  const linhas=rdos.map(r=>{const x=apTotais(r.apontamento),par=[];(r.apontamento||[]).forEach((a,i)=>{if(i>=AP_INI&&i<AP_FIM&&a&&a.min!==''&&a.min!=null&&+a.min<60)par.push({h:i,min:60-a.min,motivo:a.motivo||'Não informado',obs:a.obs||''});});
+    const o=obraById(r.obraId);return{r,obra:o?o.nome:(r.obraNome||'Obra removida'),tem:temAp(r),...x,par};});
+  const T=linhas.reduce((s,l)=>({t:s.t+l.t,p:s.p+l.p}),{t:0,p:0});T.apr=T.t+T.p?Math.round(100*T.t/(T.t+T.p)):null;
+  const mot={};linhas.forEach(l=>l.par.forEach(p=>{mot[p.motivo]=(mot[p.motivo]||0)+p.min;}));
+  const motivos=Object.entries(mot).sort((a,b)=>b[1]-a[1]);
+  return{ini,fim,fo,linhas,T,motivos,semAp:linhas.filter(l=>!l.tem).length};
+}
+function renderHoras(){
+  const hs=$('#hObra'),hv=hs.value;
+  hs.innerHTML='<option value="">Todas as obras</option>'+S.obras.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(o=>`<option value="${esc(o.id)}">${esc(o.nome)}</option>`).join('');
+  hs.value=hv&&obraById(hv)?hv:'';
+  if(!$('#hData').value)$('#hData').value=todayISO();
+  const W=semana();
+  $('#hPeriodo').textContent=`Semana de ${fmtBR(W.ini)} (segunda) a ${fmtBR(W.fim)} (domingo)`;
+  $('#hTrab').textContent=fmtMin(W.T.t);$('#hPar').textContent=fmtMin(W.T.p);$('#hApr').textContent=W.T.apr==null?'—':W.T.apr+'%';
+  $('#hCount').textContent=W.linhas.length+(W.linhas.length===1?' RDO':' RDOs');
+  const todas=!W.fo;
+  $('#hDias').innerHTML=W.linhas.length?W.linhas.map(l=>`<div class="hday ${l.tem?'':'vazio'}"><div><div class="t">${weekday(l.r.data).slice(0,3)} ${fmtBR(l.r.data).slice(0,5)} · RDO nº ${String(l.r.numero).padStart(3,'0')}</div>
+      <div class="s">${todas?esc(l.obra)+' · ':''}${l.tem?(l.p?'Parado '+fmtMin(l.p)+' · '+esc([...new Set(l.par.map(p=>p.motivo))].join(', ')):'Sem paradas'):'Sem apontamento de horas'}</div></div>
+      <div class="v">${l.tem?fmtMin(l.t)+'<div class="s">'+(l.apr==null?'':l.apr+'%')+'</div>':'—'}</div></div>`).join('')
+    :`<div class="empty">Nenhum RDO nesta semana${W.fo?' para esta obra':''}.</div>`;
+  $('#hMotBox').hidden=!W.motivos.length;
+  $('#hMot').innerHTML=W.motivos.map(([m,v])=>`<div class="hmot"><span>${esc(m)}</span><b>${fmtMin(v)}</b><div class="bar"><i style="width:${Math.round(100*v/W.T.p)}%"></i></div></div>`).join('');
+  $('#hPdf').disabled=!W.linhas.length;
+}
+$('#hObra').addEventListener('change',renderHoras);
+$('#hData').addEventListener('change',renderHoras);
+$('#hPrev').onclick=()=>{$('#hData').value=addDays(wkStart($('#hData').value||todayISO()),-7);renderHoras();};
+$('#hNext').onclick=()=>{$('#hData').value=addDays(wkStart($('#hData').value||todayISO()),7);renderHoras();};
+$('#hPdf').onclick=async()=>{const out=buildPdfSemana();if(out)await entregar(out);};
+function buildPdfSemana(){
+  if(!window.jspdf){toast('O gerador de PDF ainda está carregando. Tente de novo em instantes.');return null;}
+  const Wk=semana();if(!Wk.linhas.length){toast('Nenhum RDO nesta semana.');return null;}
+  const {jsPDF}=window.jspdf,d=new jsPDF({unit:'mm',format:'a4'});
+  const W=210,H=297,M=12,CW=W-2*M,BOT=H-16;
+  const AZ=[42,78,201],NV=[32,40,111],AZC=[233,237,251],TX=[27,31,51],MU=[91,97,112],BD=[200,205,222],WR=[161,92,7];
+  const clean=s=>String(s==null?'':s).replace(/[−–]/g,'-').replace(/[‘’]/g,"'").replace(/[“”]/g,'"').replace(/…/g,'...').replace(/[^\x00-\xFF—•]/g,'');
+  const font=(st,sz,c)=>{d.setFont('helvetica',st);d.setFontSize(sz);d.setTextColor(...c);};
+  const obraSel=Wk.fo?obraById(Wk.fo):null,todas=!Wk.fo;
+  let y=M;
+  function logo(x,y0,mw,mh){
+    try{const p=d.getImageProperties(DEFAULT_LOGO),r=Math.min(mw/p.width,(mh-4.5)/p.height),iw=p.width*r,ih=p.height*r;d.addImage(DEFAULT_LOGO,'PNG',x,y0,iw,ih);const t='ESTRUTURAS METÁLICAS';font('normal',6.5,[90,90,90]);const tw=d.getTextWidth(t);d.text(t,x,y0+ih+3.7,{charSpace:Math.max(0,(iw-tw)/(t.length-1))});return;}catch(e){}
+    font('bold',20,NV);d.text('VIEIRA',x,y0+9);
+  }
+  const per=`${fmtBR(Wk.ini)} a ${fmtBR(Wk.fim)}`;
+  function headFull(){logo(M,M,50,17);font('bold',13,NV);d.text('RELATÓRIO SEMANAL DE HORAS',W-M,M+5.5,{align:'right'});
+    font('bold',11,AZ);d.text(per,W-M,M+11,{align:'right'});font('normal',9,MU);d.text('Apontamento horário dos RDOs',W-M,M+15.5,{align:'right'});
+    d.setDrawColor(...AZ);d.setLineWidth(.6);d.line(M,M+20,W-M,M+20);y=M+24;}
+  function headSmall(){try{d.addImage(V_MARK,'PNG',M,M-.6,4,4.2);}catch(e){}font('bold',9,NV);d.text('VIEIRA',M+5.2,M+3);font('normal',8,MU);d.text(clean(`Relatório semanal de horas · ${per}`),W-M,M+3,{align:'right'});
+    d.setDrawColor(...BD);d.setLineWidth(.2);d.line(M,M+5.5,W-M,M+5.5);y=M+10;}
+  function ensure(h){if(y+h>BOT){d.addPage();headSmall();return true;}return false;}
+  function section(t){ensure(20);d.setFillColor(...AZC);d.rect(M,y,CW,6.5,'F');font('bold',8.5,NV);d.text(t.toUpperCase(),M+2.5,y+4.5);y+=8.5;}
+  function cells(row){const h=11;ensure(h);let x=M;d.setLineWidth(.2);d.setDrawColor(...BD);
+    row.forEach(([lab,val,fr])=>{const w=CW*fr;d.rect(x,y,w,h);font('normal',6.5,MU);d.text(lab.toUpperCase(),x+2,y+3.7);font('normal',9.5,TX);const t=d.splitTextToSize(clean(val===''||val==null?'—':val),w-4);d.text(t[0]+(t.length>1?'…':''),x+2,y+8.6);x+=w;});y+=h;}
+  function grid(cols,rows,total){const rh=6;
+    const head=()=>{d.setLineWidth(.2);d.setDrawColor(...BD);d.setFillColor(245,247,250);d.rect(M,y,CW,rh,'FD');font('bold',7.5,MU);let cx=M;cols.forEach(c=>{const cw=CW*c.fr;d.text(c.t.toUpperCase(),c.r?cx+cw-2:cx+2,y+4.1,{align:c.r?'right':'left'});cx+=cw;});y+=rh;};
+    ensure(rh*2);head();
+    const all=total?rows.concat([total]):rows;
+    all.forEach((r,ri)=>{if(ensure(rh))head();const tot=total&&ri===all.length-1;d.setDrawColor(...BD);d.rect(M,y,CW,rh);font(tot?'bold':'normal',8.8,r._mu?MU:TX);let cx=M;
+      cols.forEach((c,ci)=>{const cw=CW*c.fr;const t=d.splitTextToSize(clean(r[ci]),cw-4)[0]||'';d.text(t,c.r?cx+cw-2:cx+2,y+4.2,{align:c.r?'right':'left'});cx+=cw;});y+=rh;});
+    y+=4;}
+  headFull();
+  cells([['Obra',todas?'Todas as obras':(obraSel?obraSel.nome:''),todas?1:.5]].concat(todas?[]:[['Cliente',obraSel&&obraSel.cliente,.25],['Local',obraSel&&obraSel.local,.25]]));
+  cells([['Período',`${per} (segunda a domingo)`,.5],['RDOs na semana',String(Wk.linhas.length),.25],['Emitido em',fmtBR(todayISO()),.25]]);
+  y+=4;
+  // resumo em caixas
+  section('Resumo da semana');
+  const bx=[['Trabalhado',fmtMin(Wk.T.t),NV],['Parado',fmtMin(Wk.T.p),Wk.T.p?WR:NV],['Aproveitamento',Wk.T.apr==null?'-':Wk.T.apr+'%',NV]];
+  const bw=(CW-8)/3;ensure(18);bx.forEach(([l,v,c],i)=>{const x=M+i*(bw+4);d.setFillColor(...AZC);d.roundedRect(x,y,bw,16,2,2,'F');font('bold',15,c);d.text(v,x+bw/2,y+8.5,{align:'center'});font('normal',7,MU);d.text(l.toUpperCase(),x+bw/2,y+13.2,{align:'center'});});
+  y+=21;
+  if(Wk.semAp){font('normal',8,MU);d.text(clean(`${Wk.semAp} RDO(s) da semana sem apontamento de horas (aparecem com "-").`),M,y);y+=6;}
+  // por dia
+  section('Horas por dia');
+  const cols=todas?[{t:'Dia',fr:.06},{t:'Data',fr:.115},{t:'Obra',fr:.195},{t:'RDO',fr:.06},{t:'Trabalhado',fr:.11,r:1},{t:'Parado',fr:.09,r:1},{t:'Aproveit.',fr:.1,r:1}]:[{t:'Dia',fr:.08},{t:'Data',fr:.11},{t:'RDO',fr:.07},{t:'Trabalhado',fr:.13,r:1},{t:'Parado',fr:.11,r:1},{t:'Aproveit.',fr:.12,r:1}];
+  const used=cols.reduce((s,c)=>s+c.fr,0);cols.push({t:'Motivos',fr:1-used});
+  const rows=Wk.linhas.map(l=>{const r=[weekday(l.r.data).slice(0,3),fmtBR(l.r.data),...(todas?[l.obra]:[]),String(l.r.numero).padStart(3,'0'),l.tem?fmtMin(l.t):'-',l.tem?(l.p?fmtMin(l.p):'0h00'):'-',l.tem&&l.apr!=null?l.apr+'%':'-',l.tem?[...new Set(l.par.map(p=>p.motivo))].join(', '):'Sem apontamento'];if(!l.tem)r._mu=1;return r;});
+  grid(cols,rows,['Total','',...(todas?['']:[]),'',fmtMin(Wk.T.t),fmtMin(Wk.T.p),Wk.T.apr==null?'-':Wk.T.apr+'%','']);
+  // por motivo
+  if(Wk.motivos.length){section('Paradas por motivo');
+    grid([{t:'Motivo',fr:.55},{t:'Tempo parado',fr:.22,r:1},{t:'% do parado',fr:.23,r:1}],Wk.motivos.map(([m,v])=>[m,fmtMin(v),Math.round(100*v/Wk.T.p)+'%']),['Total',fmtMin(Wk.T.p),'100%']);
+    section('Detalhe das paradas');
+    const det=[];Wk.linhas.forEach(l=>l.par.forEach(p=>det.push([fmtBR(l.r.data).slice(0,5),...(todas?[l.obra]:[]),`${hh(p.h)} - ${hh(p.h+1)}`,fmtMin(p.min),p.motivo,p.obs])));
+    grid([{t:'Data',fr:.09},...(todas?[{t:'Obra',fr:.22}]:[]),{t:'Horário',fr:.15},{t:'Parado',fr:.09,r:1},{t:'Motivo',fr:.2},{t:'Observação',fr:todas?.25:.47}],det);
+  }
+  const n=d.getNumberOfPages();
+  for(let i=1;i<=n;i++){d.setPage(i);d.setDrawColor(...BD);d.setLineWidth(.2);d.line(M,H-11,W-M,H-11);font('normal',7.5,MU);
+    try{d.addImage(V_MARK,'PNG',M,H-9.7,3.2,3.35);}catch(e){}d.text('Vieira Estruturas Metálicas  •  (34) 3030-0035  •  contato@vieiraengenharia.net',M+4.6,H-7);d.text(`Página ${i} de ${n}`,W-M,H-7,{align:'right'});}
+  const slug=String(todas?'todas_obras':(obraSel?obraSel.nome:'obra')).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w]+/g,'_').replace(/^_|_$/g,'').slice(0,40);
+  return{blob:d.output('blob'),fname:`Horas_${slug}_${Wk.ini}_a_${Wk.fim}.pdf`};
 }
 function b64(blob){return new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(String(fr.result).split(',')[1]);fr.onerror=rej;fr.readAsDataURL(blob);});}
 async function pdfDe(id){
