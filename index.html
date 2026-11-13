@@ -321,10 +321,10 @@ function blankForm(){return{obraId:'',numero:1,data:todayISO(),preenchidoPor:lsG
 const MOTIVOS=['Descarregamento','Liberação da fábrica','Chuva','Falta de material','Equipamento','Segurança','Refeição','Outro'];
 const AP_INI=5,AP_FIM=19;
 function blankAp(){return Array.from({length:24},()=>({min:'',motivo:'',obs:''}));}
-function normAp(a){const b=blankAp();(Array.isArray(a)?a:[]).slice(0,24).forEach((r,i)=>{if(r)b[i]={min:r.min===''||r.min==null?'':Math.max(0,Math.min(60,+r.min||0)),motivo:r.motivo||'',obs:r.obs||''};});return b;}
+function normAp(a){const b=blankAp();(Array.isArray(a)?a:[]).slice(0,24).forEach((r,i)=>{if(r&&i>=AP_INI&&i<AP_FIM)b[i]={min:r.min===''||r.min==null?'':Math.max(0,Math.min(60,+r.min||0)),motivo:r.motivo||'',obs:r.obs||''};});return b;}
 const hh=h=>String(h%24).padStart(2,'0')+':00';
 const fmtMin=m=>`${Math.floor(m/60)}h${String(Math.round(m%60)).padStart(2,'0')}`;
-function apTotais(a){let t=0,p=0;(a||[]).forEach(r=>{if(r&&r.min!==''&&r.min!=null){t+=+r.min;p+=60-(+r.min);}});return{t,p,apr:t+p?Math.round(100*t/(t+p)):null};}
+function apTotais(a){let t=0,p=0;(a||[]).forEach((r,i)=>{if(i>=AP_INI&&i<AP_FIM&&r&&r.min!==''&&r.min!=null){t+=+r.min;p+=60-(+r.min);}});return{t,p,apr:t+p?Math.round(100*t/(t+p)):null};}
 function noExpediente(h){const i=parseInt((S.form.horario.inicio||'').slice(0,2),10),f=parseInt((S.form.horario.fim||'').slice(0,2),10);if(isNaN(i)||isNaN(f))return false;return i<=f?(h>=i&&h<f):(h>=i||h<f);}
 const S={obras:[],rdos:[],config:{},form:blankForm(),fotos:[],editingId:null,oldFotos:0,criadoEm:null,pdf:null,busy:false};
 const PINK='rdo_vieira_pin';let PIN=lsGet(PINK)||'';
@@ -381,7 +381,7 @@ function renderList(list){
   updTotals();
 }
 function renderAp(){
-  const a=S.form.apontamento;
+  S.form.apontamento=normAp(S.form.apontamento);const a=S.form.apontamento;
   const opts=v=>['<option value="">—</option>'].concat(Array.from({length:13},(_,k)=>k*5).map(m=>`<option value="${m}" ${v!==''&&+v===m?'selected':''}>${m===60?'60 min (hora cheia)':m===0?'0 min (parado)':m+' min'}</option>`)).join('');
   $('#apBox').innerHTML=a.map((r,i)=>[r,i]).filter(([r,i])=>i>=AP_INI&&i<AP_FIM).map(([r,i])=>{const on=r.min!=='',part=on&&+r.min<60;
     return `<div class="aprow ${noExpediente(i)?'exp':''} ${on?'on':''} ${on?(part?'part':'full'):''}" data-apr="${i}">
@@ -650,7 +650,7 @@ async function buildPdf(){
   const y2=table(M+hw+4,y,hw,[{t:'Equipamento',fr:.78},{t:'Qtd.',fr:.22,r:1}],eqRows);
   y=Math.max(y1,y2)+4;
   // Apontamento horário
-  const apR=(f.apontamento||[]).map((r,i)=>[i,r]).filter(([i,r])=>r&&r.min!==''&&r.min!=null);
+  const apR=(f.apontamento||[]).map((r,i)=>[i,r]).filter(([i,r])=>i>=AP_INI&&i<AP_FIM&&r&&r.min!==''&&r.min!=null);
   if(apR.length){
     const ax=apTotais(f.apontamento);
     section('Apontamento horário');
