@@ -76,6 +76,21 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--az-c);border-col
 .btn.danger{border-color:#f1c0bb;background:#fff;color:var(--err)}
 .btn:disabled{opacity:.55;cursor:default}
 .addbtn{margin-top:8px}
+.aptools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.aphint{font-size:12.5px;color:var(--mu);margin:0 0 8px}
+.aprow{display:grid;grid-template-columns:92px 1fr;gap:6px 10px;align-items:center;padding:6px 8px;border-bottom:1px solid #eef1f5;border-radius:6px}
+.aprow.exp{background:#f7f9fe}
+.aprow .hr{font-weight:600;font-size:14px;font-variant-numeric:tabular-nums;color:var(--mu)}
+.aprow.on .hr{color:var(--tx)}
+.aprow select{padding:7px 8px}
+.aprow.full select[data-ap="min"]{border-color:var(--ok);color:var(--ok);font-weight:600}
+.aprow.part select[data-ap="min"]{border-color:var(--warn);color:var(--warn);font-weight:600}
+.aprow .apx{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.aprow .apx[hidden]{display:none}
+.aptot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.aptot div{background:var(--az-c);border-radius:8px;padding:8px;text-align:center}
+.aptot b{display:block;font-size:17px;color:var(--az-d)}
+.aptot span{font-size:11.5px;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
 .drop{display:flex;align-items:center;justify-content:center;gap:8px;border:2px dashed #B7C3EE;border-radius:10px;padding:18px;color:var(--az);font-weight:600;cursor:pointer;background:#F7F9FF}
 .drop:hover{background:var(--az-c)}
 .fotos{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:12px}
@@ -172,6 +187,14 @@ a.btn{text-decoration:none}
       <h2>Equipamentos</h2>
       <div id="eqBox"></div>
       <button type="button" class="btn ghost sm addbtn" data-add="equipamentos">+ Adicionar equipamento</button>
+    </div>
+
+    <div class="card">
+      <div class="cardhead"><h2>Apontamento horário</h2><span class="pill" id="apPill">0h00 trabalhadas</span></div>
+      <p class="aphint">Em cada hora, escolha quantos minutos foram trabalhados. Se não foi a hora cheia, informe o motivo da parada.</p>
+      <div class="aptools"><button type="button" class="btn ghost sm" id="apFill">Hora cheia no expediente</button><button type="button" class="btn ghost sm" id="apClear">Limpar</button></div>
+      <div id="apBox"></div>
+      <div class="aptot"><div><b id="apTrab">0h00</b><span>Trabalhado</span></div><div><b id="apPar">0h00</b><span>Parado</span></div><div><b id="apApr">—</b><span>Aproveitamento</span></div></div>
     </div>
 
     <div class="card">
@@ -294,7 +317,14 @@ function errMsg(e){const m=String(e&&e.message||'');if(m.indexOf('SENHA')>=0){$(
 /* ---------- estado ---------- */
 function blankForm(){return{obraId:'',numero:1,data:todayISO(),preenchidoPor:lsGet(NOMEK)||'',horario:{inicio:'07:00',fim:'17:00'},
   clima:{manha:{tempo:'Ensolarado',cond:'Praticável'},tarde:{tempo:'Ensolarado',cond:'Praticável'},noite:{tempo:'—',cond:'Sem expediente'}},
-  efetivo:DEF_EF.map(f=>({funcao:f,qtd:0})),equipamentos:DEF_EQ.map(n=>({nome:n,qtd:0})),atividades:'',ocorrencias:''};}
+  efetivo:DEF_EF.map(f=>({funcao:f,qtd:0})),equipamentos:DEF_EQ.map(n=>({nome:n,qtd:0})),apontamento:blankAp(),atividades:'',ocorrencias:''};}
+const MOTIVOS=['Descarregamento','Liberação da fábrica','Chuva','Falta de material','Equipamento','Segurança','Refeição','Outro'];
+function blankAp(){return Array.from({length:24},()=>({min:'',motivo:'',obs:''}));}
+function normAp(a){const b=blankAp();(Array.isArray(a)?a:[]).slice(0,24).forEach((r,i)=>{if(r)b[i]={min:r.min===''||r.min==null?'':Math.max(0,Math.min(60,+r.min||0)),motivo:r.motivo||'',obs:r.obs||''};});return b;}
+const hh=h=>String(h%24).padStart(2,'0')+':00';
+const fmtMin=m=>`${Math.floor(m/60)}h${String(Math.round(m%60)).padStart(2,'0')}`;
+function apTotais(a){let t=0,p=0;(a||[]).forEach(r=>{if(r&&r.min!==''&&r.min!=null){t+=+r.min;p+=60-(+r.min);}});return{t,p,apr:t+p?Math.round(100*t/(t+p)):null};}
+function noExpediente(h){const i=parseInt((S.form.horario.inicio||'').slice(0,2),10),f=parseInt((S.form.horario.fim||'').slice(0,2),10);if(isNaN(i)||isNaN(f))return false;return i<=f?(h>=i&&h<f):(h>=i||h<f);}
 const S={obras:[],rdos:[],config:{},form:blankForm(),fotos:[],editingId:null,oldFotos:0,criadoEm:null,pdf:null,busy:false};
 const PINK='rdo_vieira_pin';let PIN=lsGet(PINK)||'';
 
@@ -349,6 +379,18 @@ function renderList(list){
     <button type="button" class="x" data-ldel="${list}" data-i="${i}" title="Remover">×</button></div>`).join('')||'<div class="empty">Nenhum item.</div>';
   updTotals();
 }
+function renderAp(){
+  const a=S.form.apontamento;
+  const opts=v=>['<option value="">—</option>'].concat(Array.from({length:13},(_,k)=>k*5).map(m=>`<option value="${m}" ${v!==''&&+v===m?'selected':''}>${m===60?'60 min (hora cheia)':m===0?'0 min (parado)':m+' min'}</option>`)).join('');
+  $('#apBox').innerHTML=a.map((r,i)=>{const on=r.min!=='',part=on&&+r.min<60;
+    return `<div class="aprow ${noExpediente(i)?'exp':''} ${on?'on':''} ${on?(part?'part':'full'):''}" data-apr="${i}">
+      <span class="hr">${hh(i)}–${hh(i+1)}</span>
+      <select data-ap="min" data-i="${i}" aria-label="Minutos trabalhados ${hh(i)}">${opts(r.min)}</select>
+      <div class="apx" ${part?'':'hidden'}><select data-ap="motivo" data-i="${i}"><option value="">Motivo da parada…</option>${MOTIVOS.map(m=>`<option ${r.motivo===m?'selected':''}>${m}</option>`).join('')}</select>
+      <input data-ap="obs" data-i="${i}" placeholder="Observação" value="${esc(r.obs)}"></div></div>`;}).join('');
+  updAp();
+}
+function updAp(){const x=apTotais(S.form.apontamento);$('#apTrab').textContent=fmtMin(x.t);$('#apPar').textContent=fmtMin(x.p);$('#apApr').textContent=x.apr==null?'—':x.apr+'%';$('#apPill').textContent=fmtMin(x.t)+' trabalhadas';$('#apPill').classList.toggle('warn',x.p>0);}
 function updTotals(){const t=S.form.efetivo.reduce((s,r)=>s+(+r.qtd||0),0);$('#efTotal').textContent=t+(t===1?' pessoa':' pessoas');}
 function renderFotos(){
   $('#fotoCount').textContent=S.fotos.length+(S.fotos.length===1?' foto':' fotos');
@@ -359,17 +401,21 @@ function renderFotos(){
 function renderForm(){
   $$('[data-f]').forEach(el=>{el.value=S.form[el.dataset.f]==null?'':S.form[el.dataset.f];});
   $$('[data-h]').forEach(el=>{el.value=S.form.horario[el.dataset.h]||'';});
-  renderObraSelect();renderClima();renderList('efetivo');renderList('equipamentos');renderFotos();
+  renderObraSelect();renderClima();renderList('efetivo');renderList('equipamentos');renderAp();renderFotos();
   const ed=!!S.editingId;$('#editTag').hidden=!ed;$('#formTitle').textContent=ed?`RDO nº ${String(S.form.numero).padStart(3,'0')}`:'Novo RDO';
 }
 function renderAllData(){renderObraSelect();renderHist();renderObras();renderLogo();}
 
 /* ---------- eventos do formulário ---------- */
-let draftT;function saveDraft(){if(S.editingId)return;clearTimeout(draftT);draftT=setTimeout(()=>lsSet(DRAFT,JSON.stringify(S.form)),400);}
+let draftT;function saveDraft(){if(S.editingId)return;clearTimeout(draftT);draftT=setTimeout(()=>{if(!S.editingId)lsSet(DRAFT,JSON.stringify(S.form));},400);}
 document.addEventListener('input',e=>{
   const el=e.target;
   if(el.dataset.f){S.form[el.dataset.f]=el.dataset.f==='numero'?(parseInt(el.value,10)||''):el.value;if(el.dataset.f==='data')renderObraInfo();if(el.dataset.f==='preenchidoPor')lsSet(NOMEK,el.value);saveDraft();}
-  else if(el.dataset.h){S.form.horario[el.dataset.h]=el.value;saveDraft();}
+  else if(el.dataset.h){S.form.horario[el.dataset.h]=el.value;$$('.aprow').forEach(row=>row.classList.toggle('exp',noExpediente(+row.dataset.apr)));saveDraft();}
+  else if(el.dataset.ap){const r=S.form.apontamento[+el.dataset.i];
+    if(el.dataset.ap==='min'){r.min=el.value===''?'':+el.value;if(r.min===''||r.min===60){r.motivo='';r.obs='';}const row=el.closest('.aprow'),on=r.min!=='',part=on&&r.min<60;
+      row.classList.toggle('on',on);row.classList.toggle('part',part);row.classList.toggle('full',on&&!part);row.querySelector('.apx').hidden=!part;if(!part){row.querySelector('[data-ap="motivo"]').value='';row.querySelector('[data-ap="obs"]').value='';}updAp();}
+    else r[el.dataset.ap]=el.value;saveDraft();}
   else if(el.dataset.ln){S.form[el.dataset.ln][+el.dataset.i][KEY[el.dataset.ln]]=el.value;saveDraft();}
   else if(el.dataset.lq){const r=S.form[el.dataset.lq][+el.dataset.i];r.qtd=Math.max(0,parseInt(el.value,10)||0);el.closest('.lrow').classList.toggle('on',r.qtd>0);updTotals();saveDraft();}
   else if(el.dataset.leg!=null){const f=S.fotos[+el.dataset.leg];f.legenda=el.value;f.dirty=true;}
@@ -383,6 +429,8 @@ document.addEventListener('click',e=>{
   if(b.dataset.step){const r=S.form[b.dataset.l][+b.dataset.i];r.qtd=Math.max(0,(+r.qtd||0)+(+b.dataset.step));renderList(b.dataset.l);saveDraft();}
   else if(b.dataset.ldel){S.form[b.dataset.ldel].splice(+b.dataset.i,1);renderList(b.dataset.ldel);saveDraft();}
   else if(b.dataset.add){const l=b.dataset.add;S.form[l].push({[KEY[l]]:'',qtd:1});renderList(l);const ins=$$(`[data-ln="${l}"]`);ins[ins.length-1].focus();saveDraft();}
+  else if(b.id==='apFill'){let n=0;S.form.apontamento.forEach((r,i)=>{if(noExpediente(i)&&r.min===''){r.min=60;n++;}});renderAp();saveDraft();toast(n?`${n} hora(s) do expediente marcadas como cheias. Ajuste as que tiveram parada.`:'As horas do expediente já estão preenchidas.',3500);}
+  else if(b.id==='apClear'){ask('Limpar todo o apontamento horário deste RDO?','Limpar').then(ok=>{if(ok){S.form.apontamento=blankAp();renderAp();saveDraft();}});}
   else if(b.dataset.fdel!=null){S.fotos.splice(+b.dataset.fdel,1);S.fotos.forEach(f=>f.dirty=true);renderFotos();}
   else if(b.dataset.fup!=null){const i=+b.dataset.fup;if(i>0){[S.fotos[i-1],S.fotos[i]]=[S.fotos[i],S.fotos[i-1]];S.fotos.forEach(f=>f.dirty=true);renderFotos();}}
 });
@@ -452,6 +500,7 @@ async function carregar(id,modo,quiet){
     }else{
       ['obraId','numero','data','preenchidoPor','atividades','ocorrencias'].forEach(k=>{if(r[k]!=null)base[k]=r[k];});
       ['horario','clima','efetivo','equipamentos'].forEach(k=>{if(r[k])base[k]=clone(r[k]);});
+      base.apontamento=normAp(r.apontamento);
       PER.forEach(([k])=>{if(!base.clima[k])base.clima[k]={tempo:'—',cond:'Sem expediente'};});
       S.form=base;S.fotos=await Store.getFotos(id,r.fotosCount||0);S.editingId=id;S.oldFotos=r.fotosCount||0;S.criadoEm=r.criadoEm||null;S.dirty=false;S.pdf=Object.fromEntries(['pdfId','pdfNome','pdfEm','emailEm','emailPara'].filter(k=>r[k]!=null).map(k=>[k,r[k]]));
       toast('RDO aberto.');
@@ -599,6 +648,19 @@ async function buildPdf(){
   const y1=table(M,y,hw,[{t:'Função',fr:.78},{t:'Qtd.',fr:.22,r:1}],efRows,['Total',String(tot)]);
   const y2=table(M+hw+4,y,hw,[{t:'Equipamento',fr:.78},{t:'Qtd.',fr:.22,r:1}],eqRows);
   y=Math.max(y1,y2)+4;
+  // Apontamento horário
+  const apR=(f.apontamento||[]).map((r,i)=>[i,r]).filter(([i,r])=>r&&r.min!==''&&r.min!=null);
+  if(apR.length){
+    const ax=apTotais(f.apontamento);
+    section('Apontamento horário');
+    const rows=apR.map(([i,r])=>[`${hh(i)} - ${hh(i+1)}`,fmtMin(+r.min),+r.min<60?fmtMin(60-r.min):'-',+r.min<60?(r.motivo||'Não informado'):'',r.obs||'']);
+    const cols=[{t:'Horário',fr:.17},{t:'Trabalhado',fr:.14,r:1},{t:'Parado',fr:.12,r:1},{t:'Motivo',fr:.24},{t:'Observação',fr:.33}];
+    let i0=0;
+    while(i0<rows.length){const fit=Math.max(1,Math.floor((BOT-y)/6)-2);const chunk=rows.slice(i0,i0+fit);i0+=chunk.length;const last=i0>=rows.length;
+      if(fit<3){d.addPage();headSmall();continue;}
+      y=table(M,y,CW,cols,chunk,last?['Total',fmtMin(ax.t),fmtMin(ax.p),`Aproveitamento ${ax.apr==null?'-':ax.apr+'%'}`,'']:null);if(!last){d.addPage();headSmall();}}
+    y+=4;
+  }
   // Textos
   section('Atividades executadas');para(f.atividades);
   section('Ocorrências / observações');para(f.ocorrencias);
@@ -732,7 +794,7 @@ $('#mEnviar').onclick=async()=>{
 };
 
 /* ---------- início ---------- */
-(function restoreDraft(){const s=lsGet(DRAFT);if(!s)return;try{const d=JSON.parse(s);if(d&&d.clima&&d.efetivo){S.form=Object.assign(blankForm(),d);S.dirty=true;}}catch(e){}})();
+(function restoreDraft(){const s=lsGet(DRAFT);if(!s)return;try{const d=JSON.parse(s);if(d&&d.clima&&d.efetivo){S.form=Object.assign(blankForm(),d);S.form.apontamento=normAp(S.form.apontamento);S.dirty=true;}}catch(e){}})();
 renderLogo();renderForm();showTab('novo');
 async function boot(){
   try{const d=await gs('boot');S.obras=d.obras||[];S.rdos=d.rdos||[];sortRdos();$('#login').classList.remove('on');banner('');renderAllData();}
