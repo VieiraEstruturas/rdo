@@ -319,6 +319,7 @@ function blankForm(){return{obraId:'',numero:1,data:todayISO(),preenchidoPor:lsG
   clima:{manha:{tempo:'Ensolarado',cond:'Praticável'},tarde:{tempo:'Ensolarado',cond:'Praticável'},noite:{tempo:'—',cond:'Sem expediente'}},
   efetivo:DEF_EF.map(f=>({funcao:f,qtd:0})),equipamentos:DEF_EQ.map(n=>({nome:n,qtd:0})),apontamento:blankAp(),atividades:'',ocorrencias:''};}
 const MOTIVOS=['Descarregamento','Liberação da fábrica','Chuva','Falta de material','Equipamento','Segurança','Refeição','Outro'];
+const AP_INI=5,AP_FIM=19;
 function blankAp(){return Array.from({length:24},()=>({min:'',motivo:'',obs:''}));}
 function normAp(a){const b=blankAp();(Array.isArray(a)?a:[]).slice(0,24).forEach((r,i)=>{if(r)b[i]={min:r.min===''||r.min==null?'':Math.max(0,Math.min(60,+r.min||0)),motivo:r.motivo||'',obs:r.obs||''};});return b;}
 const hh=h=>String(h%24).padStart(2,'0')+':00';
@@ -382,7 +383,7 @@ function renderList(list){
 function renderAp(){
   const a=S.form.apontamento;
   const opts=v=>['<option value="">—</option>'].concat(Array.from({length:13},(_,k)=>k*5).map(m=>`<option value="${m}" ${v!==''&&+v===m?'selected':''}>${m===60?'60 min (hora cheia)':m===0?'0 min (parado)':m+' min'}</option>`)).join('');
-  $('#apBox').innerHTML=a.map((r,i)=>{const on=r.min!=='',part=on&&+r.min<60;
+  $('#apBox').innerHTML=a.map((r,i)=>[r,i]).filter(([r,i])=>i>=AP_INI&&i<AP_FIM).map(([r,i])=>{const on=r.min!=='',part=on&&+r.min<60;
     return `<div class="aprow ${noExpediente(i)?'exp':''} ${on?'on':''} ${on?(part?'part':'full'):''}" data-apr="${i}">
       <span class="hr">${hh(i)}–${hh(i+1)}</span>
       <select data-ap="min" data-i="${i}" aria-label="Minutos trabalhados ${hh(i)}">${opts(r.min)}</select>
@@ -429,7 +430,7 @@ document.addEventListener('click',e=>{
   if(b.dataset.step){const r=S.form[b.dataset.l][+b.dataset.i];r.qtd=Math.max(0,(+r.qtd||0)+(+b.dataset.step));renderList(b.dataset.l);saveDraft();}
   else if(b.dataset.ldel){S.form[b.dataset.ldel].splice(+b.dataset.i,1);renderList(b.dataset.ldel);saveDraft();}
   else if(b.dataset.add){const l=b.dataset.add;S.form[l].push({[KEY[l]]:'',qtd:1});renderList(l);const ins=$$(`[data-ln="${l}"]`);ins[ins.length-1].focus();saveDraft();}
-  else if(b.id==='apFill'){let n=0;S.form.apontamento.forEach((r,i)=>{if(noExpediente(i)&&r.min===''){r.min=60;n++;}});renderAp();saveDraft();toast(n?`${n} hora(s) do expediente marcadas como cheias. Ajuste as que tiveram parada.`:'As horas do expediente já estão preenchidas.',3500);}
+  else if(b.id==='apFill'){let n=0;S.form.apontamento.forEach((r,i)=>{if(i>=AP_INI&&i<AP_FIM&&noExpediente(i)&&r.min===''){r.min=60;n++;}});renderAp();saveDraft();toast(n?`${n} hora(s) do expediente marcadas como cheias. Ajuste as que tiveram parada.`:'As horas do expediente já estão preenchidas.',3500);}
   else if(b.id==='apClear'){ask('Limpar todo o apontamento horário deste RDO?','Limpar').then(ok=>{if(ok){S.form.apontamento=blankAp();renderAp();saveDraft();}});}
   else if(b.dataset.fdel!=null){S.fotos.splice(+b.dataset.fdel,1);S.fotos.forEach(f=>f.dirty=true);renderFotos();}
   else if(b.dataset.fup!=null){const i=+b.dataset.fup;if(i>0){[S.fotos[i-1],S.fotos[i]]=[S.fotos[i],S.fotos[i-1]];S.fotos.forEach(f=>f.dirty=true);renderFotos();}}
