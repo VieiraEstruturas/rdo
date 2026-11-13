@@ -76,6 +76,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--az-c);border-col
 .btn.danger{border-color:#f1c0bb;background:#fff;color:var(--err)}
 .btn:disabled{opacity:.55;cursor:default}
 .addbtn{margin-top:8px}
+.editnote{background:#fff4e5;color:var(--warn);border-radius:8px;padding:9px 11px;font-size:13.5px;margin:-2px 0 10px}
 .aptools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .aphint{font-size:12.5px;color:var(--mu);margin:0 0 8px}
 .aprow{display:grid;grid-template-columns:92px 1fr;gap:6px 10px;align-items:center;padding:6px 8px;border-bottom:1px solid #eef1f5;border-radius:6px}
@@ -90,6 +91,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--az-c);border-col
 .hbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.hbtns #hVer{grid-column:1/-1}
 .wknav{display:grid;grid-template-columns:44px 1fr 44px;gap:8px;margin-top:8px}
 .hday{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 2px;border-bottom:1px solid #eef1f5}
+.hday .hedit{grid-column:1/-1;justify-self:start;margin-top:4px;padding:5px 10px;font-size:13px}
 .hday .t{font-weight:600}.hday .s{font-size:12.5px;color:var(--mu)}
 .hday .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:var(--az-d)}
 .hday.vazio .v{color:var(--mu);font-weight:500}
@@ -170,6 +172,7 @@ a.btn{text-decoration:none}
   <section id="tab-novo" class="tab">
     <div class="card">
       <div class="cardhead"><h2 id="formTitle">Novo RDO</h2><span id="editTag" class="pill warn" hidden>Editando</span></div>
+      <p class="editnote" id="editNote" hidden></p>
       <div class="grid2">
         <div class="full"><label class="lb">Obra *</label><select id="fObra"></select></div>
         <div><label class="lb">Nº do RDO</label><input type="number" min="1" inputmode="numeric" data-f="numero"></div>
@@ -276,6 +279,7 @@ a.btn{text-decoration:none}
 
 <div class="actions" id="actions"><div class="in">
   <button class="btn ghost" id="bNovo" title="Começar um novo RDO">Novo</button>
+  <button class="btn" id="bSalvar" hidden>Salvar alterações</button>
   <button class="btn" id="bPdf">Salvar e gerar PDF</button>
   <button class="btn" id="bMail">Salvar e enviar e-mail</button>
 </div></div>
@@ -426,7 +430,9 @@ function renderForm(){
   $$('[data-f]').forEach(el=>{el.value=S.form[el.dataset.f]==null?'':S.form[el.dataset.f];});
   $$('[data-h]').forEach(el=>{el.value=S.form.horario[el.dataset.h]||'';});
   renderObraSelect();renderClima();renderList('efetivo');renderList('equipamentos');renderAp();renderFotos();
-  const ed=!!S.editingId;$('#editTag').hidden=!ed;$('#formTitle').textContent=ed?`RDO nº ${String(S.form.numero).padStart(3,'0')}`:'Novo RDO';
+  const ed=!!S.editingId;$('#editTag').hidden=!ed;$('#bSalvar').hidden=!ed;
+  const er=ed&&S.rdos.find(x=>x.id===S.editingId);$('#editNote').hidden=!ed;
+  if(ed)$('#editNote').textContent=(er&&er.emailEm?`Este RDO já foi enviado por e-mail em ${new Date(er.emailEm).toLocaleDateString('pt-BR')}. `:'')+'Use "Salvar alterações" para gravar as mudanças e atualizar o PDF no Drive sem enviar e-mail.';$('#formTitle').textContent=ed?`RDO nº ${String(S.form.numero).padStart(3,'0')}`:'Novo RDO';
 }
 function renderAllData(){renderObraSelect();renderHist();renderHoras();renderObras();renderLogo();}
 
@@ -490,7 +496,7 @@ $('#fotoIn').addEventListener('change',async e=>{
 });
 
 /* ---------- salvar / carregar RDO ---------- */
-function setBusy(v){S.busy=v;['#bPdf','#bNovo','#bMail'].forEach(s=>$(s).disabled=v);}
+function setBusy(v){S.busy=v;['#bPdf','#bNovo','#bMail','#bSalvar'].forEach(s=>$(s).disabled=v);}
 async function salvar(){
   const f=S.form;
   if(!f.obraId){toast('Selecione a obra.');$('#fObra').focus();return false;}
@@ -549,6 +555,7 @@ async function novo(){
   S.form=blankForm();S.fotos=[];S.editingId=null;S.pdf=null;S.oldFotos=0;S.criadoEm=null;S.dirty=false;lsDel(DRAFT);renderForm();window.scrollTo(0,0);toast('Novo RDO.');
 }
 $('#bNovo').onclick=novo;
+$('#bSalvar').onclick=async()=>{if(S.busy||!S.editingId)return;const out=await salvarNuvem();if(out)toast('Alterações salvas e PDF atualizado no Drive. Nenhum e-mail foi enviado.',5000);};
 $('#bPdf').onclick=async()=>{if(S.busy)return;const out=await salvarNuvem();if(out)await entregar(out);};
 $('#bMail').onclick=async()=>{if(S.busy)return;const out=await salvarNuvem();if(out)await enviarDireto(S.editingId,out);};
 
@@ -562,10 +569,16 @@ function renderHist(){
     return `<div class="item"><div><div class="t">RDO nº ${String(r.numero).padStart(3,'0')} · ${fmtBR(r.data)} <span style="color:var(--mu);font-weight:500">(${weekday(r.data).slice(0,3).toLowerCase()})</span></div>
       <div class="s">${esc(o?o.nome:r.obraNome||'Obra removida')}</div>
       <div class="s">${ef} no efetivo${cl&&cl!=='—'?' · '+esc(cl):''} · ${r.fotosCount||0} foto(s)${r.pdfUrl?' · <a class="cloud" href="'+esc(r.pdfUrl)+'" target="_blank" rel="noopener">PDF na nuvem</a>':''}${r.emailEm?' · <span class="cloud">Enviado por e-mail em '+new Date(r.emailEm).toLocaleDateString('pt-BR')+'</span>':''}${r.preenchidoPor?' · por '+esc(r.preenchidoPor):''}</div></div>
-      <div class="b"><button class="btn ghost sm" data-hver="${esc(r.id)}">Visualizar</button><button class="btn ghost sm" data-hpdf="${esc(r.id)}">Baixar PDF</button><button class="btn ghost sm" data-hmail="${esc(r.id)}">Enviar e-mail</button><button class="btn ghost sm" data-hed="${esc(r.id)}">Abrir</button><button class="btn ghost sm" data-hdup="${esc(r.id)}" title="Novo RDO com o mesmo efetivo e equipamentos">Duplicar</button><button class="btn danger sm" data-hdel="${esc(r.id)}">Excluir</button></div></div>`;
+      <div class="b"><button class="btn ghost sm" data-hver="${esc(r.id)}">Visualizar</button><button class="btn ghost sm" data-hpdf="${esc(r.id)}">Baixar PDF</button><button class="btn ghost sm" data-hmail="${esc(r.id)}">Enviar e-mail</button><button class="btn ghost sm" data-hed="${esc(r.id)}">Editar</button><button class="btn ghost sm" data-hdup="${esc(r.id)}" title="Novo RDO com o mesmo efetivo e equipamentos">Duplicar</button><button class="btn danger sm" data-hdel="${esc(r.id)}">Excluir</button></div></div>`;
   }).join(''):`<div class="empty">${S.rdos.length?'Nenhum RDO para esta obra.':'Nenhum RDO salvo ainda.'}</div>`;
 }
 $('#histObra').addEventListener('change',renderHist);
+$('#hDias').addEventListener('click',async e=>{
+  const b=e.target.closest('button');if(!b||S.busy)return;
+  if(b.dataset.hhed){(async()=>{const id=b.dataset.hhed;
+    if(S.dirty&&S.editingId!==id&&!(await ask('O RDO aberto no formulário tem alterações não salvas, que serão descartadas. Continuar?','Continuar')))return;
+    if(await carregar(id)){setTimeout(()=>{const c=$('#apBox').closest('.card');const y=c.getBoundingClientRect().top+window.scrollY-120;window.scrollTo({top:y,behavior:'smooth'});},150);}})();}
+});
 $('#histList').addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b||S.busy)return;
   if(b.dataset.hed)carregar(b.dataset.hed);
@@ -745,7 +758,8 @@ function renderHoras(){
   const todas=!W.fo;
   $('#hDias').innerHTML=W.linhas.length?W.linhas.map(l=>`<div class="hday ${l.tem?'':'vazio'}"><div><div class="t">${weekday(l.r.data).slice(0,3)} ${fmtBR(l.r.data).slice(0,5)} · RDO nº ${String(l.r.numero).padStart(3,'0')}</div>
       <div class="s">${todas?esc(l.obra)+' · ':''}${l.tem?(l.p?'Parado '+fmtMin(l.p)+' · '+esc([...new Set(l.par.map(p=>p.motivo))].join(', ')):'Sem paradas'):'Sem apontamento de horas'}</div></div>
-      <div class="v">${l.tem?fmtMin(l.t)+'<div class="s">'+(l.apr==null?'':l.apr+'%')+'</div>':'—'}</div></div>`).join('')
+      <div class="v">${l.tem?fmtMin(l.t)+'<div class="s">'+(l.apr==null?'':l.apr+'%')+'</div>':'—'}</div>
+      <button type="button" class="btn ghost sm hedit" data-hhed="${esc(l.r.id)}">${l.tem?'Editar horas':'Lançar horas'}</button></div>`).join('')
     :`<div class="empty">Nenhum RDO nesta semana${W.fo?' para esta obra':''}.</div>`;
   $('#hMotBox').hidden=!W.motivos.length;
   $('#hMot').innerHTML=W.motivos.map(([m,v])=>`<div class="hmot"><span>${esc(m)}</span><b>${fmtMin(v)}</b><div class="bar"><i style="width:${Math.round(100*v/W.T.p)}%"></i></div></div>`).join('');
