@@ -87,6 +87,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--az-c);border-col
 .aprow.part select[data-ap="min"]{border-color:var(--warn);color:var(--warn);font-weight:600}
 .aprow .apx{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .aprow .apx[hidden]{display:none}
+.hbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.hbtns #hVer{grid-column:1/-1}
 .wknav{display:grid;grid-template-columns:44px 1fr 44px;gap:8px;margin-top:8px}
 .hday{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 2px;border-bottom:1px solid #eef1f5}
 .hday .t{font-weight:600}.hday .s{font-size:12.5px;color:var(--mu)}
@@ -238,7 +239,7 @@ a.btn{text-decoration:none}
       <div class="aptot"><div><b id="hTrab">0h00</b><span>Trabalhado</span></div><div><b id="hPar">0h00</b><span>Parado</span></div><div><b id="hApr">—</b><span>Aproveitamento</span></div></div>
       <div id="hDias" style="margin-top:10px"></div>
       <div id="hMotBox" hidden><h2 style="margin-top:14px">Paradas por motivo</h2><div id="hMot"></div></div>
-      <button type="button" class="btn" id="hPdf" style="width:100%;margin-top:14px">Baixar relatório da semana (PDF)</button>
+      <div class="hbtns"><button type="button" class="btn ghost" id="hVer">Visualizar</button><button type="button" class="btn" id="hPdf">Salvar e gerar PDF</button><button type="button" class="btn" id="hMail">Salvar e enviar e-mail</button></div>
     </div>
   </section>
 
@@ -283,12 +284,12 @@ a.btn{text-decoration:none}
 <div class="modal" id="modal"><div class="box"><p id="modalMsg"></p><div class="rowbtns"><button class="btn ghost sm" id="modalNo">Cancelar</button><button class="btn ghost sm" id="modalAlt" hidden></button><button class="btn sm" id="modalYes">Confirmar</button></div></div></div>
 
 <div class="modal" id="mailModal"><div class="box wide">
-  <h3>Enviar RDO por e-mail</h3>
+  <h3 id="mTitle">Enviar RDO por e-mail</h3>
   <label class="lb">Para (fiscal)</label><input id="mPara" inputmode="email" placeholder="fiscal@cliente.com.br">
   <label class="lb">Cópia (Cc)</label><input id="mCc" inputmode="email" placeholder="separe vários e-mails com ;">
   <label class="lb">Assunto</label><input id="mAss">
   <label class="lb">Mensagem</label><textarea id="mMsg" rows="9"></textarea>
-  <p class="mut" style="margin:10px 0 12px">O PDF do RDO vai anexado. Remetente: RDO Vieira Estruturas. Para vários e-mails, separe com ponto e vírgula.</p>
+  <p class="mut" style="margin:10px 0 12px"><span id="mNota">O PDF do RDO vai anexado.</span> Remetente: RDO Vieira Estruturas. Para vários e-mails, separe com ponto e vírgula.</p>
   <div class="rowbtns"><button class="btn ghost sm" id="mFechar">Fechar</button><button class="btn sm" id="mEnviar">Enviar e-mail</button></div>
 </div></div>
 <div class="modal" id="viewModal"><div class="box view"><div class="vhead"><b id="viewTitle"></b><button class="btn ghost sm" id="viewClose">Fechar</button></div><div id="viewPages"></div></div></div>
@@ -748,13 +749,47 @@ function renderHoras(){
     :`<div class="empty">Nenhum RDO nesta semana${W.fo?' para esta obra':''}.</div>`;
   $('#hMotBox').hidden=!W.motivos.length;
   $('#hMot').innerHTML=W.motivos.map(([m,v])=>`<div class="hmot"><span>${esc(m)}</span><b>${fmtMin(v)}</b><div class="bar"><i style="width:${Math.round(100*v/W.T.p)}%"></i></div></div>`).join('');
-  $('#hPdf').disabled=!W.linhas.length;
+  ['#hPdf','#hMail','#hVer'].forEach(x=>$(x).disabled=!W.linhas.length);
 }
 $('#hObra').addEventListener('change',renderHoras);
 $('#hData').addEventListener('change',renderHoras);
 $('#hPrev').onclick=()=>{$('#hData').value=addDays(wkStart($('#hData').value||todayISO()),-7);renderHoras();};
 $('#hNext').onclick=()=>{$('#hData').value=addDays(wkStart($('#hData').value||todayISO()),7);renderHoras();};
-$('#hPdf').onclick=async()=>{const out=buildPdfSemana();if(out)await entregar(out);};
+let hBusy=false;
+async function relNuvem(){
+  const out=buildPdfSemana();if(!out)return null;const fo=$('#hObra').value;
+  toast('Salvando relatório no Google Drive…',60000);
+  try{await gs('saveRelPdf',fo,out.fname,await b64(out.blob));toast('Relatório salvo no Google Drive.');}
+  catch(e){toast('O relatório não foi salvo no Drive: '+errMsg(e),6000);}
+  return out;
+}
+const hLock=v=>{hBusy=v;['#hPdf','#hMail','#hVer'].forEach(x=>$(x).disabled=v);};
+$('#hVer').onclick=()=>{const out=buildPdfSemana();if(out)verOut(out);};
+$('#hPdf').onclick=async()=>{if(hBusy)return;hLock(true);try{const out=await relNuvem();if(out)await entregar(out);}finally{hLock(false);renderHoras();}};
+$('#hMail').onclick=async()=>{if(hBusy)return;hLock(true);try{const out=await relNuvem();if(out)await enviarSemana(out);}finally{hLock(false);renderHoras();}};
+function mailSemana(){
+  const Wk=semana(),o=Wk.fo?obraById(Wk.fo)||{}:null;
+  const nome=o?String(o.nome||'Obra').replace(/\s*[-–—]+\s*/g,' ').trim().replace(/\s+/g,'_'):'Todas_as_obras';
+  const ap=Wk.T.apr==null?'-':Wk.T.apr+'%';
+  return{para:o&&o.emailCliente||'',cc:o&&o.emailCopia||'',
+    ass:'Horas_'+nome+'_'+fmtBR(Wk.ini).replace(/\//g,'_')+'_a_'+fmtBR(Wk.fim).replace(/\//g,'_'),
+    msg:`Prezados,\n\nSegue em anexo o relatório semanal de horas${o?' da obra '+(o.nome||''):' das obras'}, referente à semana de ${fmtBR(Wk.ini)} a ${fmtBR(Wk.fim)}.\n\nHoras trabalhadas: ${fmtMin(Wk.T.t)}\nHoras paradas: ${fmtMin(Wk.T.p)}\nAproveitamento: ${ap}\n\nFicamos à disposição para qualquer esclarecimento.\n\nAtenciosamente,\nVieira Estruturas Metálicas\n(34) 3030-0035`};
+}
+let mailCtx=null;
+async function enviarSemana(out){
+  const d=mailSemana(),para=listaEm(d.para),cc=listaEm(d.cc);
+  if(!para.length||para.some(e=>!emOk(e))||cc.some(e=>!emOk(e))){abrirEmailSemana(out,d);return;}
+  if(!(await ask('Confirmar envio do relatório de horas com o PDF anexado?\n\nPara: '+para.join(', ')+(cc.length?'\nCópia: '+cc.join(', '):''),'Enviar'))){toast('Relatório salvo na nuvem. O e-mail não foi enviado.',4500);return;}
+  toast('Enviando e-mail…',60000);
+  try{await gs('sendRelMail',para.join(','),d.ass,d.msg,out.fname,await b64(out.blob),cc.join(','));toast('Relatório enviado para '+para.join(', ')+(cc.length?' (cópia: '+cc.length+')':'')+'.',6000);}
+  catch(e){toast(errMsg(e),7000);}
+}
+function abrirEmailSemana(out,d){
+  mailId=null;mailCtx={out};
+  $('#mTitle').textContent='Enviar relatório de horas por e-mail';$('#mNota').textContent='O PDF do relatório semanal vai anexado.';
+  $('#mPara').value=d.para;$('#mCc').value=d.cc;$('#mAss').value=d.ass;$('#mMsg').value=d.msg;
+  $('#mailModal').classList.add('on');
+}
 function buildPdfSemana(){
   if(!window.jspdf){toast('O gerador de PDF ainda está carregando. Tente de novo em instantes.');return null;}
   const Wk=semana();if(!Wk.linhas.length){toast('Nenhum RDO nesta semana.');return null;}
@@ -833,8 +868,8 @@ function loadPdfjs(){
   return pdfjsP;
 }
 let verN=0;
-async function cmdVer(id){
-  const out=await pdfDe(id);if(!out)return;
+async function cmdVer(id){const out=await pdfDe(id);if(out)await verOut(out);}
+async function verOut(out){
   const n=++verN,box=$('#viewPages');box.innerHTML='<div class="empty">Carregando visualização…</div>';$('#viewTitle').textContent=out.fname;$('#viewModal').classList.add('on');
   try{
     const lib=await loadPdfjs();const doc=await lib.getDocument({data:new Uint8Array(await out.blob.arrayBuffer())}).promise;
@@ -885,7 +920,8 @@ async function enviarDireto(id,out){
   finally{setBusy(false);}
 }
 function abrirEmail(id){
-  const r=S.rdos.find(x=>x.id===id);if(!r)return;const o=obraById(r.obraId)||{};mailId=id;
+  const r=S.rdos.find(x=>x.id===id);if(!r)return;const o=obraById(r.obraId)||{};mailId=id;mailCtx=null;
+  $('#mTitle').textContent='Enviar RDO por e-mail';$('#mNota').textContent='O PDF do RDO vai anexado.';
   const num=String(r.numero).padStart(3,'0'),ef=(r.efetivo||[]).reduce((s,x)=>s+(+x.qtd||0),0);
   $('#mPara').value=o.emailCliente||'';
   $('#mCc').value=o.emailCopia||'';
@@ -895,13 +931,22 @@ function abrirEmail(id){
 }
 $('#mFechar').onclick=()=>$('#mailModal').classList.remove('on');
 $('#mEnviar').onclick=async()=>{
-  if(!mailId||sending||S.busy)return;
+  if((!mailId&&!mailCtx)||sending||S.busy)return;
   const para=$('#mPara').value.split(/[,;\s]+/).map(s=>s.trim()).filter(Boolean);
   if(!para.length||para.some(e=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))){toast('Informe um e-mail de destino válido.');$('#mPara').focus();return;}
   const cc=$('#mCc').value.split(/[,;\s]+/).map(s=>s.trim()).filter(Boolean);
   if(cc.some(e=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))){toast('Confira os e-mails em cópia.');$('#mCc').focus();return;}
   const ass=$('#mAss').value.trim(),msg=$('#mMsg').value,id=mailId;
   if(!ass){toast('Informe o assunto.');$('#mAss').focus();return;}
+  if(mailCtx){
+    if(!(await ask('Confirmar envio do relatório de horas com o PDF anexado?\n\nPara: '+para.join(', ')+(cc.length?'\nCópia: '+cc.join(', '):''),'Enviar')))return;
+    sending=true;const b=$('#mEnviar');b.disabled=true;b.textContent='Enviando…';
+    try{const out=mailCtx.out;toast('Enviando e-mail…',60000);await gs('sendRelMail',para.join(','),ass,msg,out.fname,await b64(out.blob),cc.join(','));
+      toast('Relatório enviado para '+para.join(', ')+(cc.length?' (cópia: '+cc.length+')':'')+'.',5000);$('#mailModal').classList.remove('on');}
+    catch(e){toast(errMsg(e),7000);}
+    finally{sending=false;b.disabled=false;b.textContent='Enviar e-mail';}
+    return;
+  }
   if(!(await ask('Confirmar envio do RDO com o PDF anexado?\n\nPara: '+para.join(', ')+(cc.length?'\nCópia: '+cc.join(', '):''),'Enviar')))return;
   sending=true;const b=$('#mEnviar');b.disabled=true;b.textContent='Enviando…';
   try{
